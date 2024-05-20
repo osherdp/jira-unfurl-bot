@@ -1,6 +1,6 @@
 # Jira Unfurl Bot
 
-Currently running https://console-openshift-console.apps.rosa.appsres07ue1.a9ro.p3.openshiftapps.com
+Currently running at: https://console-openshift-console.apps.rosa.appsres07ue1.a9ro.p3.openshiftapps.com
 
 # Jira Unfurl Bot Architecture
 
