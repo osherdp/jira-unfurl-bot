@@ -49,6 +49,20 @@ objects:
                 secretKeyRef:
                   key: ${JIRA_UNFURL_BOT_JIRA_ACCESS_TOKEN}
                   name: ${JIRA_UNFURL_BOT_SECRETS_NAME}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: jira-unfurl-bot
+    name: jira-unfurl-bot
+  spec:
+    ports:
+      - name: jira-unfurl-bot-port
+        port: ${{WEBSERVER_PORT}}
+        protocol: TCP
+        targetPort: ${{WEBSERVER_PORT}}
+    selector:
+      app: jira-unfurl-bot
 
 parameters:
 - name: IMAGE_NAME
@@ -75,3 +89,5 @@ parameters:
   value: "jira-access-token"
 - name: NUMBER_OF_REPLICAS
   value: "1"
+- name: WEBSERVER_PORT
+  value: "3000"
