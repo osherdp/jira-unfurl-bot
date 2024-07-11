@@ -34,6 +34,11 @@ objects:
                 secretKeyRef:
                   key: ${JIRA_UNFURL_BOT_SLACK_BOT_TOKEN}
                   name: ${JIRA_UNFURL_BOT_SECRETS_NAME}
+            - name: SLACK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: ${JIRA_UNFURL_BOT_SLACK_SIGNING_SECRET}
+                  name: ${JIRA_UNFURL_BOT_SECRETS_NAME}
             - name: SLACK_APP_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -62,6 +67,8 @@ parameters:
   value: "jira-unfurl-bot-secrets"
 - name: JIRA_UNFURL_BOT_SLACK_BOT_TOKEN 
   value: "slack-bot-token"
+- name: JIRA_UNFURL_BOT_SLACK_SIGNING_SECRET 
+  value: "slack-signing-secret"
 - name: JIRA_UNFURL_BOT_SLACK_APP_TOKEN
   value: "slack-app-token"
 - name: JIRA_UNFURL_BOT_JIRA_ACCESS_TOKEN
