@@ -4,18 +4,25 @@ import sys
 from urllib.parse import urlparse
 
 import jira
+from fastapi import FastAPI, Request
 from jira.resources import Version
 from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_bolt.adapter.fastapi import SlackRequestHandler
 
-app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
+slack_bot_token: str = os.environ["SLACK_BOT_TOKEN"]
+slack_signing_secret: str = os.environ["SLACK_SIGNING_SECRET"]
+jira_access_token: str = os.environ["JIRA_ACCESS_TOKEN"]
+
+app = App(token=slack_bot_token, signing_secret=slack_signing_secret)
+handler = SlackRequestHandler(app)
+
+# FastAPI app
+api = FastAPI()
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 
 # Create a logger for this module
@@ -24,7 +31,7 @@ logger = logging.getLogger(__name__)
 JIRA_SERVER = "https://issues.redhat.com"
 ISSUE_TYPE_TO_COLOR = {
     "Epic": "#4c00b0",
-    "Task" : "#1c4966",
+    "Task": "#1c4966",
     "Bug": "#7c0a02",
     "Story": "#3bb143",
 }
@@ -42,37 +49,37 @@ ISSUE_TYPE_TO_PRIORITY = {
 }
 MAX_SHOWN_ISSUES_IN_VERSION = 10
 
-
-jira_access_token = os.environ.get("JIRA_ACCESS_TOKEN")
-if jira_access_token is None:
-    raise ValueError("You must provide JIRA_ACCESS_TOKEN env-var")
-
 jira_client = jira.JIRA(JIRA_SERVER, token_auth=jira_access_token)
+
 
 # Check liveness
 @app.event("app_mention")
-def event_test(say):
+def event_test(say) -> None:  # noqa: ANN001
     say("I'm alive")
 
 
 @app.event("link_shared")
-def got_link(client, payload):
+def got_link(client, payload) -> None:  # noqa: ANN001
     for link in payload["links"]:
         url = link["url"]
         logger.info(f"Link shared: {url}")
         _payload = None
         try:
             parsed_url = urlparse(url)
-            path_parts = parsed_url.path.split('/')
-            
-            if 'browse' in path_parts:
+            path_parts = parsed_url.path.split("/")
+
+            if "browse" in path_parts:
                 issue_id = path_parts[-1]
                 issue = jira_client.issue(issue_id)
                 _payload = get_issue_payload(issue, url)
-            elif 'versions' in path_parts:
+            elif "versions" in path_parts:
                 version_id = path_parts[-1]
                 version = jira_client.version(version_id)
                 _payload = get_version_payload(version, url)
+            elif "projects" == path_parts[1] and "issues" == path_parts[3]:
+                issue_id = path_parts[4]
+                issue = jira_client.issue(issue_id)
+                _payload = get_issue_payload(issue, url)
             else:
                 logger.warning(f"Unrecognized Jira URL structure: {url}")
 
@@ -84,8 +91,8 @@ def got_link(client, payload):
                 )
             else:
                 logger.info(f"No payload generated for URL: {url}")
-        except Exception as e:
-            logger.error(f"Error processing URL {url}: {str(e)}")
+        except Exception:
+            logger.exception(f"Error processing URL {url}")
 
 
 def get_version_payload(version: Version, url: str):
@@ -103,14 +110,18 @@ def get_version_payload(version: Version, url: str):
         jql_filter += " AND issuetype in (Bug, Epic, Story)"
 
     linked_issues = jira_client.search_issues(jql_str=jql_filter)
-    linked_issues.sort(key=lambda issue: ISSUE_TYPE_TO_PRIORITY[issue['fields']['issuetype']['name']])
+    linked_issues.sort(
+        key=lambda issue: ISSUE_TYPE_TO_PRIORITY[issue["fields"]["issuetype"]["name"]],
+    )
 
     for issue in linked_issues[:MAX_SHOWN_ISSUES_IN_VERSION]:
-        icon = ISSUE_TYPE_TO_ICON.get(issue['fields']['issuetype']['name'], "jira-1992")
+        icon = ISSUE_TYPE_TO_ICON.get(issue["fields"]["issuetype"]["name"], "jira-1992")
         text += f"\n\t\t:{icon}: <{issue['permalink']()}|{issue['fields']['summary']}>"
 
     if len(linked_issues) > MAX_SHOWN_ISSUES_IN_VERSION:
-        text += f"\n\t\t... ({len(linked_issues) - MAX_SHOWN_ISSUES_IN_VERSION} more epics/bugs to show. <{url}|See more>)"
+        text += (
+            f"\n\t\t... ({len(linked_issues) - MAX_SHOWN_ISSUES_IN_VERSION} more epics/bugs to show. <{url}|See more>)"
+        )
 
     return {
         url: {
@@ -121,10 +132,10 @@ def get_version_payload(version: Version, url: str):
                     "text": {
                         "type": "mrkdwn",
                         "text": text,
-                    }
+                    },
                 },
             ],
-        }
+        },
     }
 
 
@@ -139,11 +150,32 @@ def get_issue_payload(issue, url):
                     "text": {
                         "type": "mrkdwn",
                         "text": f":jira: *{issue.key}* [*{issue.fields.status.name}*] : {issue.fields.summary}",
-                    }
+                    },
                 },
-            ]
-        }
+            ],
+        },
     }
 
+
+@api.post("/slack/events")
+async def endpoint(req: Request):
+    # Get the raw request body
+    body = await req.body()
+
+    # Get the headers
+    headers = req.headers
+
+    # Check if this is a URL verification request
+    if req.headers.get("content-type") == "application/json":
+        body_json = await req.json()
+        if body_json.get("type") == "url_verification":
+            return {"challenge": body_json["challenge"]}
+
+    # If not a URL verification, process normally
+    return await handler.handle(req)
+
+
 if __name__ == "__main__":
-    SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN")).start()
+    import uvicorn
+
+    uvicorn.run(api, host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
